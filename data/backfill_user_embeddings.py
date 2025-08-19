@@ -15,7 +15,7 @@ def _vec_to_array(s: str) -> np.ndarray:
     nums = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
     return np.array([float(x) for x in nums], dtype=np.float32)
 
-def main():
+def main(min_positive_rating: float = 4.0):
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
         # fall back to project config (loads .env)
@@ -33,12 +33,13 @@ def main():
 
         upserts = 0
         for uid in users:
+            # Only consider liked items (rating >= threshold)
             cur.execute("""
                 SELECT ie.embedding
                 FROM public.interactions i
                 JOIN public.item_embeddings ie ON ie.movie_id = i.movie_id
-                WHERE i.user_id = %s
-            """, (uid,))
+                WHERE i.user_id = %s AND COALESCE(i.rating, 0) >= %s
+            """, (uid, min_positive_rating))
             rows = cur.fetchall()
             if not rows:
                 continue
@@ -58,4 +59,9 @@ def main():
         print(f"Upserted embeddings for {upserts} users.")
 
 if __name__ == "__main__":
-    main()
+    # Default threshold 4.0; override via env MIN_POSITIVE_RATING if needed
+    try:
+        thr = float(os.environ.get("MIN_POSITIVE_RATING", "4.0"))
+    except Exception:
+        thr = 4.0
+    main(min_positive_rating=thr)
