@@ -158,3 +158,49 @@ def trending(days: int = Query(7, ge=1, le=30), limit: int = Query(20, ge=1, le=
     except Exception:
         LOGGER.exception("Failed to fetch trending movies")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# --- feedback / interactions ---
+class InteractionIn(BaseModel):
+    user_id: int
+    movie_id: int
+    rating: float
+
+
+@app.post("/interact", tags=["Interactions"])
+def interact(payload: InteractionIn):
+    try:
+        if payload.rating < 0.5 or payload.rating > 5.0:
+            raise HTTPException(status_code=422, detail="rating must be between 0.5 and 5.0")
+
+        with get_conn() as conn, conn.cursor() as cur:
+            # Ensure user exists (movies are expected to already exist in DB)
+            cur.execute(
+                """
+                INSERT INTO public.users (user_id)
+                VALUES (%s)
+                ON CONFLICT (user_id) DO NOTHING
+                """,
+                (payload.user_id,),
+            )
+
+            # Upsert interaction
+            cur.execute(
+                """
+                INSERT INTO public.interactions (user_id, movie_id, rating, interacted_at, interaction_type, weight)
+                VALUES (%s, %s, %s, now(), 'rating', %s)
+                ON CONFLICT (user_id, movie_id) DO UPDATE
+                SET rating = EXCLUDED.rating,
+                    interacted_at = now(),
+                    interaction_type = EXCLUDED.interaction_type,
+                    weight = EXCLUDED.weight
+                """,
+                (payload.user_id, payload.movie_id, payload.rating, float(payload.rating)),
+            )
+            conn.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception:
+        LOGGER.exception("Failed to upsert interaction")
+        raise HTTPException(status_code=500, detail="Internal server error")
