@@ -1,185 +1,121 @@
-# FlickIQ - Movie Recommendation System
+# FlickIQ
 
-A production-ready hybrid movie recommendation system built with Python, LightFM, FastAPI, and Streamlit. Combines collaborative filtering with content-based filtering using the MovieLens 25M dataset and TMDB API for rich movie metadata.
+A hybrid movie recommendation system: a FastAPI backend backed by PostgreSQL/pgvector serving collaborative-filtering recommendations trained on the MovieLens 25M dataset and enriched with TMDB metadata, with a React + TypeScript frontend.
 
-## 🚀 Features
-
-- **Hybrid Recommendations**: LightFM model combining collaborative filtering + content features (genres)
-- **Real-time API**: FastAPI service with personalized recommendations, search, and trending movies
-- **Rich Metadata**: TMDB integration for posters, overviews, and enhanced genre information
-- **Vector Similarity**: PostgreSQL with pgvector for efficient similarity search
-- **Interactive UI**: Optional Streamlit interface for easy testing and demos
-- **Production Ready**: Comprehensive evaluation metrics, batched processing, and error handling
-
-## 🏗️ Architecture
+## Project Structure
 
 ```
-├── api/              # FastAPI application
-├── app/              # Streamlit UI
-├── config/           # Configuration and settings
-├── data/             # Data loading and processing scripts
-├── db/               # Database schema and migrations
-├── model/            # LightFM training and evaluation
-└── requirements.txt  # Python dependencies
+backend/
+  api/main.py         # FastAPI app (routes, DB queries)
+  config/settings.py  # env-based configuration
+  data/                # MovieLens loading + TMDB enrichment scripts
+  db/                  # schema.sql, pgvector index
+  model/               # LightFM training and evaluation
+  requirements.txt
+frontend/
+  src/                 # React app (pages, components, api client)
+  vite.config.ts       # dev server + /api proxy to the backend
 ```
 
-## 📋 Prerequisites
+## Prerequisites
 
-- **Python 3.11** (required for LightFM compatibility)
-- **PostgreSQL** with pgvector extension (Supabase recommended)
-- **TMDB API** credentials (for movie metadata)
-- **MovieLens 25M** dataset
+- Python 3.11 (required for `psycopg2-binary`/LightFM compatibility)
+- Node.js 18+
+- PostgreSQL with the `pgvector` extension enabled (Supabase works out of the box)
+- A TMDB API key
+- The MovieLens 25M dataset (`movies.csv`, `ratings.csv`) placed in `backend/data/movielens/`
 
-## 🛠️ Quick Start
-
-### 1. Environment Setup
+## Backend Setup
 
 ```bash
-# Clone the repository
-git clone https://github.com/ShaunM042/FlickIQ.git
-cd FlickIQ
-
-# Create virtual environment (Python 3.11 required)
+cd backend
 python3.11 -m venv .venv-3.11
-source .venv-3.11/bin/activate  # On Windows: .venv-3.11\Scripts\activate
-
-# Install dependencies
+source .venv-3.11/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 2. Configuration
-
-Create a `.env` file in the project root:
+Create a `.env` file in the repo root (loaded by `backend/config/settings.py`):
 
 ```env
-# Database Configuration
-DATABASE_URL=postgresql+psycopg://postgres.pzywmzybolnmtqenwydj:YOUR_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require
+DATABASE_URL=postgresql+psycopg://user:password@host:5432/postgres?sslmode=require
 
-# Supabase (if using)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
 
-# TMDB API (for movie metadata)
 TMDB_API_KEY=your-api-key
 TMDB_ACCESS_TOKEN=your-access-token
 TMDB_IMAGE_BASE=https://image.tmdb.org/t/p/w342
 POSTER_PLACEHOLDER=https://placehold.co/342x513?text=No+Poster
 ```
 
-### 3. Database Setup
+Enable pgvector and load the schema:
 
 ```bash
-# Enable pgvector extension in your PostgreSQL database
-# Via psql or Supabase SQL Editor:
-# CREATE EXTENSION IF NOT EXISTS vector;
+# In psql or the Supabase SQL editor:
+CREATE EXTENSION IF NOT EXISTS vector;
 
-# Set up database schema
-export DATABASE_URL="postgresql+psycopg://postgres.pzywmzybolnmtqenwydj:YOUR_PASSWORD@aws-1-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require"
+# From backend/, with DATABASE_URL set:
 python -m data.load_schema
+python -m data.load_movielens
+python -m data.enrich_tmdb_async
 ```
-### 4. Start Services
+
+Train the recommendation model:
 
 ```bash
-# Terminal 1: Start FastAPI server
+python model/train_model.py
+```
+
+Start the API (from `backend/`):
+
+```bash
 uvicorn api.main:app --reload --port 8000
-
-# Terminal 2: Start Streamlit UI (optional)
-export API_BASE="http://127.0.0.1:8000"
-python -m streamlit run app/streamlit_app.py
 ```
 
-## 🔗 API Endpoints
-
-Once running, access the API at `http://localhost:8000`:
-
-- **`GET /healthz`** - Health check
-- **`GET /docs`** - Interactive API documentation
-- **`GET /movies/search?q=batman`** - Search movies
-- **`GET /recommendations/{user_id}?limit=10`** - Get personalized recommendations
-- **`GET /similar/{movie_id}?limit=10`** - Get similar movies
-- **`GET /trending?days=7&limit=20`** - Get trending movies
-- **`POST /users`** - Create/ensure user exists
-- **`POST /interactions`** - Record user-movie interactions
-
-## 📊 Data Overview
-
-The system processes the full MovieLens 25M dataset:
-- **~62K movies** with titles, years, and genres
-- **~280K users** with rating histories  
-- **~25M ratings** (0.5-5.0 scale)
-- **TMDB enrichment** adds posters, overviews, and enhanced metadata
-
-## 🧪 Testing & Validation
+## Frontend Setup
 
 ```bash
-# Check data loading status
-python -m data.table_counts
+cd frontend
+npm install
+npm run dev
+```
 
-# Test database connection
-python test_connection.py
+This starts Vite on `http://localhost:3000` and proxies `/api` requests to the backend at `http://localhost:8000`. For a production build, set `VITE_API_BASE` to the deployed backend URL and run `npm run build`.
 
-# View sample data
-python -m data.peek_table movies
-python -m data.peek_table interactions
+## API Endpoints
 
-# Comprehensive model evaluation
+- `GET /healthz` - DB health check
+- `GET /docs` - interactive API docs
+- `GET /movies` - browse movies
+- `GET /movies/search?q=` - search movies by title
+- `GET /similar/{movie_id}` - item-to-item similarity via pgvector
+- `GET /recommendations/{user_id}` - personalized recommendations
+- `GET /trending` - popularity-based fallback
+- `POST /users` - create/ensure a user exists
+- `POST /interactions` - upsert a user-movie interaction
+- `GET /interactions/{user_id}` - list a user's interactions
+- `DELETE /interactions/{user_id}/{movie_id}` - remove an interaction
+- `GET /users/{user_id}/liked` - a user's liked movies
+
+## Useful Scripts
+
+```bash
+# From backend/
+python -m data.table_counts          # row counts per table
+python -m data.peek_table movies     # inspect a table's contents
 python model/evaluate_model.py --train --epochs 5 --no_components 64
+
+# From the repo root
+python test_connection.py            # verify DB connectivity
 ```
 
-## 🚀 Deployment Considerations
+## Deployment
 
-### Performance Tuning
-- Adjust `--no_components` (embedding dimensions) based on dataset size
-- Use `--limit_users` during development to work with smaller datasets
-- Tune PostgreSQL `work_mem` and `shared_buffers` for large data operations
+`Procfile` and `nixpacks.toml` assume the backend directory is the deploy root, running `uvicorn api.main:app --host 0.0.0.0 --port $PORT`. Set the platform's root/working directory to `backend/` and configure the same environment variables listed above.
 
-## 🛠️ Development
+## Common Issues
 
-### Useful Commands
-
-```bash
-# Monitor data loading progress
-python -m data.table_counts
-
-# Test individual components
-python -c "from config.settings import DATABASE_URL; print(DATABASE_URL)"
-python -c "import psycopg2; print('Database connection OK')"
-
-# Quick API test
-curl http://localhost:8000/healthz
-curl http://localhost:8000/movies/search?q=batman&limit=5
-```
-
-### Common Issues
-
-**LightFM Installation Issues**: Use Python 3.11. Avoid Python 3.12 due to compilation issues.
-
-**psycopg2 Build Errors**: 
-```bash
-pip install psycopg2-binary  # Use binary version instead of source
-```
-
-**Database Connection Issues**: Ensure pgvector extension is enabled and connection string format is correct for each tool:
-- API: `postgresql+psycopg://...` (SQLAlchemy format)
-- Data scripts: `postgresql://...` (standard format)
-
-**TMDB Rate Limits**: The enrichment script automatically handles rate limiting. For faster development, work with `--limit` flag.
-
-## 📈 Model Performance
-
-The system uses Recall@K as the primary evaluation metric:
-- **Recall@10**: Measures how many relevant items appear in top-10 recommendations
-- **Cold Start Handling**: Uses item popularity fallback for new users
-- **Hybrid Approach**: Combines user-item interactions with genre features
-
-## 📄 License
-
-MIT License - see LICENSE file for details.
-
-## 🙋‍♂️ Support
-
-For issues and questions:
-- Check the FastAPI docs at `/docs` when running locally
-- Review logs for detailed error messages
-- Ensure all prerequisites are installed correctly
+- **LightFM/psycopg2 build errors**: use Python 3.11; `psycopg2-binary` avoids source compilation issues.
+- **Database connection errors**: confirm the `vector` extension is enabled and `DATABASE_URL` uses the `postgresql+psycopg://` scheme (SQLAlchemy/psycopg format).
+- **TMDB rate limits**: use the async enrichment script and its `--limit` flag during development.
